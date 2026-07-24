@@ -32,16 +32,19 @@ def _get_gsheet():
     from google.oauth2 import service_account
 
     # Render: read credentials from env var
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '').strip()
     if creds_json:
         import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write(creds_json)
-            tmp_path = f.name
-        creds = service_account.Credentials.from_service_account_file(
-            tmp_path,
-            scopes=['https://www.googleapis.com/auth/spreadsheets'])
-        os.unlink(tmp_path)
+        tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        tmp.write(creds_json)
+        tmp.flush()
+        tmp.close()
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                tmp.name,
+                scopes=['https://www.googleapis.com/auth/spreadsheets'])
+        finally:
+            os.unlink(tmp.name)
     else:
         # Local: read from known path
         key_path = os.path.expanduser('~/.claude/credentials/trusty-mantra-494923-u0-5ae64fce221b.json')
@@ -205,6 +208,10 @@ def api_health():
     except ImportError:
         status["gspread_version"] = "NOT INSTALLED"
     try:
+        # Check env var
+        creds_raw = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+        status["cred_env_set"] = bool(creds_raw)
+        status["cred_env_len"] = len(creds_raw)
         gc = _get_gsheet()
         sh = gc.open_by_key(QUIZ_SHEET_ID)
         ws = sh.worksheet(QUIZ_SHEET_TAB)
