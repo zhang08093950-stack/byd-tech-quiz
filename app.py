@@ -171,8 +171,8 @@ def api_submit():
         conn.executemany("""
             INSERT INTO tech__quiz_history
                 (session_id, question_type, question_en, question_es, options,
-                 correct_index, chosen_index, is_correct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 correct_index, chosen_index, is_correct, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """, [
             (
                 session_id,
