@@ -148,7 +148,7 @@ def init_db():
             correct_index INTEGER,
             chosen_index INTEGER,
             is_correct INTEGER,
-            created_at TEXT DEFAULT (datetime('now','localtime'))
+            created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_tech_quiz_session ON tech__quiz_history(session_id);
     """)
