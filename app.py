@@ -6,10 +6,85 @@ Supports ?lang=en | ?lang=es parameter (default: en).
 
 Local dev: reads from external drive /Volumes/PS2000/BYD/Uruguay/uruguay.db
 Render/prod: reads from bundled data/tech_quiz.db
+Dual-write: quiz history → SQLite + Google Sheets (best-effort)
 """
 
-import sqlite3, random, os, json
+import sqlite3, random, os, json, logging
+from datetime import datetime
 from flask import Flask, render_template, jsonify, request, g
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Google Sheets config
+QUIZ_SHEET_ID = '12tRJS2js_Cw4rtZQTGylPjTOemq7lRMsPREzAhuL_Ec'
+QUIZ_SHEET_TAB = 'Quiz History'
+_gsheet_client = None
+
+
+def _get_gsheet():
+    """Lazy-init Google Sheets client (service account)."""
+    global _gsheet_client
+    if _gsheet_client is not None:
+        return _gsheet_client
+
+    import gspread
+    from google.oauth2 import service_account
+
+    # Render: read credentials from env var
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    if creds_json:
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            f.write(creds_json)
+            tmp_path = f.name
+        creds = service_account.Credentials.from_service_account_file(
+            tmp_path,
+            scopes=['https://www.googleapis.com/auth/spreadsheets'])
+        os.unlink(tmp_path)
+    else:
+        # Local: read from known path
+        key_path = os.path.expanduser('~/.claude/credentials/trusty-mantra-494923-u0-5ae64fce221b.json')
+        creds = service_account.Credentials.from_service_account_file(
+            key_path,
+            scopes=['https://www.googleapis.com/auth/spreadsheets'])
+
+    _gsheet_client = gspread.authorize(creds)
+    return _gsheet_client
+
+
+def _write_to_sheet(session_id, answers):
+    """Append quiz answers to Google Sheet (best-effort, never raises)."""
+    try:
+        gc = _get_gsheet()
+        sh = gc.open_by_key(QUIZ_SHEET_ID)
+        ws = sh.worksheet(QUIZ_SHEET_TAB)
+
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        total = len(answers)
+        correct = sum(1 for a in answers if a.get('is_correct'))
+        score_str = f"{correct}/{total}"
+
+        rows = []
+        for a in answers:
+            rows.append([
+                session_id,
+                now,
+                a.get('question_en', ''),
+                a.get('question_es', ''),
+                json.dumps(a.get('options', []), ensure_ascii=False),
+                a.get('correct_index'),
+                a.get('chosen_index'),
+                'Yes' if a.get('is_correct') else 'No',
+                score_str,
+                a.get('category', ''),
+            ])
+
+        # Append all rows at once
+        ws.append_rows(rows, value_input_option='RAW')
+        logger.info(f"Sheets: wrote {len(rows)} rows for session {session_id[:20]}")
+    except Exception as e:
+        logger.warning(f"Sheets write failed (non-fatal): {e}")
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 _EXT_DB = "/Volumes/PS2000/BYD/Uruguay/uruguay.db"
@@ -187,6 +262,8 @@ def api_submit():
             for a in answers
         ])
         conn.commit()
+        # Dual-write to Google Sheets (best-effort, non-blocking)
+        _write_to_sheet(session_id, answers)
         return jsonify({"ok": True, "saved": len(answers)})
     finally:
         conn.close()
