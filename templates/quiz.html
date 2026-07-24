@@ -8,45 +8,63 @@
 </head>
 <body>
 
-<div class="container">
-  <!-- Header -->
-  <div class="header">
+<div class="container page-in">
+
+  <!-- ── Header ── -->
+  <div class="page-header">
     <h1 id="title">🚗 BYD Tech Quiz</h1>
     <p class="subtitle" id="subtitle">5 random questions — test your BYD technical knowledge</p>
-    <div class="header-actions">
+    <div class="header-row">
       <button class="btn btn-lang" onclick="switchLang()" id="langBtn">ES</button>
       <button class="btn btn-primary" onclick="loadQuestions()" id="newBtn">🔄 New Questions</button>
-      <span class="score" id="scoreDisplay" style="display:none"></span>
+      <span class="score-pill" id="scoreDisplay" style="display:none"></span>
     </div>
   </div>
 
-  <!-- Loading -->
-  <div id="loading" class="loading">Loading questions...</div>
+  <!-- ── Score Hero ── -->
+  <div class="score-hero" id="scoreHero">
+    <div class="big-score" id="scoreHeroValue"></div>
+    <div class="score-label" id="scoreHeroLabel"></div>
+  </div>
 
-  <!-- Quiz Area -->
+  <!-- ── Progress Bar ── -->
+  <div class="progress-bar-wrap" id="progressWrap" style="display:none">
+    <div class="progress-stats">
+      <span id="progressLabel">Answered 0/5</span>
+      <span id="progressPct">0%</span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  </div>
+
+  <!-- ── Loading ── -->
+  <div id="loading" class="loading-state">
+    <div class="loading-spinner"></div>
+    <div id="loadingText">Loading questions...</div>
+  </div>
+
+  <!-- ── Quiz Area ── -->
   <div id="quizArea" style="display:none">
     <div id="questionsContainer"></div>
 
     <div class="submit-row">
       <button class="btn btn-submit" onclick="checkAnswers()" id="submitBtn">✓ Check Answers</button>
-      <span class="score" id="resultDisplay" style="display:none"></span>
     </div>
   </div>
 
-  <!-- History Panel -->
+  <!-- ── History ── -->
   <div class="history-panel" id="historyPanel">
     <div class="history-header" onclick="toggleHistory()">
       <h3 id="historyTitle">📋 History</h3>
       <span class="history-toggle" id="historyToggle">▼</span>
     </div>
     <div class="history-list" id="historyList">
-      <div class="loading">Loading history...</div>
+      <div class="loading-state" style="padding:24px"><div class="loading-spinner"></div></div>
     </div>
   </div>
 </div>
 
 <script>
-// ── Language state ──
+// ── Language State ──
 let lang = new URLSearchParams(window.location.search).get('lang') || '{{ lang }}';
 if (lang !== 'en' && lang !== 'es') lang = 'en';
 
@@ -58,13 +76,16 @@ const T = {
     loading: 'Loading questions...',
     checkBtn: '✓ Check Answers',
     correct: '✅ Correct!',
-    incorrect: '❌ ',
+    great: 'Excellent!',
+    good: 'Good job!',
+    meh: 'Keep practicing!',
     unanswered: '⚠️ Please answer all questions and try again.',
     historyTitle: '📋 History',
     historyLoading: 'Loading history...',
     historyEmpty: 'No quiz history yet.',
     historyFailed: 'Failed to load history.',
     scoreLabel: 'Score',
+    answered: 'Answered',
     errorLoad: '⚠️ Failed to load. Is the server running?',
     catLabel: 'BYD Tech',
   },
@@ -75,42 +96,37 @@ const T = {
     loading: 'Cargando preguntas...',
     checkBtn: '✓ Verificar Respuestas',
     correct: '✅ ¡Correcto!',
-    incorrect: '❌ ',
+    great: '¡Excelente!',
+    good: '¡Buen trabajo!',
+    meh: '¡Sigue practicando!',
     unanswered: '⚠️ Por favor responde todas las preguntas e intenta de nuevo.',
     historyTitle: '📋 Historial',
     historyLoading: 'Cargando historial...',
     historyEmpty: 'Aún no hay historial de cuestionarios.',
     historyFailed: 'Error al cargar el historial.',
     scoreLabel: 'Puntuación',
+    answered: 'Respondidas',
     errorLoad: '⚠️ Error al cargar. ¿Está el servidor funcionando?',
     catLabel: 'Tecnología BYD',
   }
 };
 
 function applyLang() {
-  // Update URL without reload
   const url = new URL(window.location);
   url.searchParams.set('lang', lang);
   window.history.replaceState({}, '', url);
 
-  // Update static text
   document.title = T[lang].title;
   document.getElementById('title').textContent = T[lang].title;
   document.getElementById('subtitle').textContent = T[lang].subtitle;
   document.getElementById('newBtn').textContent = T[lang].newBtn;
+  document.getElementById('loadingText').textContent = T[lang].loading;
   document.getElementById('submitBtn').textContent = T[lang].checkBtn;
   document.getElementById('historyTitle').textContent = T[lang].historyTitle;
   document.getElementById('langBtn').textContent = lang === 'en' ? 'ES' : 'EN';
+  document.getElementById('progressLabel').textContent = `${T[lang].answered} 0/5`;
 
-  // Hide/show language-specific elements
-  document.querySelectorAll('.lang-en, .lang-es').forEach(el => {
-    el.style.display = el.classList.contains('lang-' + lang) ? '' : 'none';
-  });
-
-  // Re-render questions if loaded
   if (questions.length > 0) renderQuestions();
-
-  // Re-render history if loaded
   if (lastHistoryData) renderHistory(lastHistoryData);
 }
 
@@ -129,18 +145,15 @@ function genSessionId() {
   return 'qz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
-function _(en, es) {
-  return lang === 'es' ? es : en;
-}
-
 async function loadQuestions() {
   answered = false;
   sessionId = genSessionId();
   document.getElementById('loading').style.display = 'block';
-  document.getElementById('loading').textContent = T[lang].loading;
+  document.getElementById('loadingText').textContent = T[lang].loading;
   document.getElementById('quizArea').style.display = 'none';
-  document.getElementById('resultDisplay').style.display = 'none';
+  document.getElementById('progressWrap').style.display = 'none';
   document.getElementById('scoreDisplay').style.display = 'none';
+  document.getElementById('scoreHero').classList.remove('show');
   document.getElementById('submitBtn').disabled = false;
 
   try {
@@ -150,9 +163,10 @@ async function loadQuestions() {
     renderQuestions();
     document.getElementById('loading').style.display = 'none';
     document.getElementById('quizArea').style.display = 'block';
+    document.getElementById('progressWrap').style.display = 'block';
     window.scrollTo({top: 0, behavior: 'smooth'});
   } catch (err) {
-    document.getElementById('loading').textContent = T[lang].errorLoad;
+    document.getElementById('loadingText').textContent = T[lang].errorLoad;
   }
 }
 
@@ -162,7 +176,7 @@ function renderQuestions() {
 
   questions.forEach((q, i) => {
     const card = document.createElement('div');
-    card.className = 'question-card';
+    card.className = `question-card stagger-in stagger-${i + 1}`;
     card.id = 'qcard-' + i;
 
     const questionText = lang === 'es' ? q.question_es : q.question_en;
@@ -191,6 +205,16 @@ function renderQuestions() {
   });
 }
 
+// ── Progress ──
+function updateProgress(answeredCount) {
+  const total = questions.length;
+  const pct = Math.round(answeredCount / total * 100);
+  document.getElementById('progressLabel').textContent = `${T[lang].answered} ${answeredCount}/${total}`;
+  document.getElementById('progressPct').textContent = `${pct}%`;
+  document.getElementById('progressFill').style.width = `${pct}%`;
+}
+
+// ── Check Answers ──
 async function checkAnswers() {
   if (answered) return;
   answered = true;
@@ -230,12 +254,11 @@ async function checkAnswers() {
       } else {
         card.classList.add('incorrect-card');
         const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
-        explanation.innerHTML = `${T[lang].incorrect}${explText}`;
+        explanation.innerHTML = explText;
       }
       explanation.style.display = 'block';
     }
 
-    // Store both EN/ES for history
     const optionsCombined = q.options_en.map((enOpt, j) => {
       const esOpt = q.options_es[j] || '';
       return esOpt && esOpt !== enOpt ? `${enOpt}  |  ${esOpt}` : enOpt;
@@ -254,12 +277,33 @@ async function checkAnswers() {
 
   const total = questions.length;
   const pct = allAnswered ? Math.round(correct/total*100) : 0;
-  const scoreText = `${correct}/${total} (${pct}%)`;
 
-  document.getElementById('resultDisplay').textContent = scoreText;
-  document.getElementById('resultDisplay').style.display = 'inline';
-  document.getElementById('scoreDisplay').textContent = `${T[lang].scoreLabel}: ${scoreText}`;
-  document.getElementById('scoreDisplay').style.display = 'inline';
+  updateProgress(total);
+
+  // Score hero
+  const hero = document.getElementById('scoreHero');
+  const heroVal = document.getElementById('scoreHeroValue');
+  const heroLabel = document.getElementById('scoreHeroLabel');
+  heroVal.textContent = `${correct}/${total}`;
+  if (pct >= 80) {
+    heroVal.className = 'big-score great';
+    heroLabel.textContent = T[lang].great;
+  } else if (pct >= 50) {
+    heroVal.className = 'big-score good';
+    heroLabel.textContent = T[lang].good;
+  } else {
+    heroVal.className = 'big-score meh';
+    heroLabel.textContent = T[lang].meh;
+  }
+  hero.classList.add('show');
+
+  // Score pill in header
+  const scorePill = document.getElementById('scoreDisplay');
+  scorePill.textContent = `${T[lang].scoreLabel}: ${correct}/${total}`;
+  scorePill.style.display = 'inline-flex';
+  scorePill.classList.add('show');
+
+  document.getElementById('progressFill').classList.add('complete');
 
   if (!allAnswered) {
     const msg = document.createElement('div');
@@ -269,7 +313,7 @@ async function checkAnswers() {
     return;
   }
 
-  // Auto-submit to server
+  // Submit to server
   try {
     await fetch('/api/submit', {
       method: 'POST',
@@ -299,12 +343,12 @@ function renderHistory(data) {
     list.innerHTML = `<div class="history-empty">${T[lang].historyEmpty}</div>`;
     return;
   }
-  list.innerHTML = data.map(s => {
+  list.innerHTML = data.map((s, si) => {
     const pct = Math.round(s.correct / s.total * 100);
     const badgeCls = pct >= 80 ? 'badge-good' : pct >= 50 ? 'badge-ok' : 'badge-low';
     const time = new Date(s.time + 'Z').toLocaleString();
     return `
-      <div class="history-item">
+      <div class="history-item stagger-in" style="animation-delay:${si * 0.04}s">
         <div class="history-meta">
           <span class="history-time">${time}</span>
           <span class="history-badge ${badgeCls}">${s.correct}/${s.total} (${pct}%)</span>
@@ -323,7 +367,7 @@ function renderHistory(data) {
 
 async function loadHistory() {
   const list = document.getElementById('historyList');
-  list.innerHTML = `<div class="loading">${T[lang].historyLoading}</div>`;
+  list.innerHTML = `<div class="loading-state" style="padding:24px"><div class="loading-spinner"></div></div>`;
   try {
     const resp = await fetch('/api/history?limit=10');
     const data = await resp.json();
