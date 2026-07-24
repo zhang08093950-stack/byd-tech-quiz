@@ -83,6 +83,14 @@ def inject_lang():
     return {"lang": g.lang, "langs": LANGS}
 
 
+@app.after_request
+def add_cache_headers(resp):
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
 @app.route("/")
 def index():
     return render_template("quiz.html")
