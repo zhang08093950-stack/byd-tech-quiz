@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/tech_quiz.db
+.env
+venv/

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BYD Tech Quiz | {{ langs[lang] }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <h1 id="title">🚗 BYD Tech Quiz</h1>
+    <p class="subtitle" id="subtitle">5 random questions — test your BYD technical knowledge</p>
+    <div class="header-actions">
+      <button class="btn btn-lang" onclick="switchLang()" id="langBtn">ES</button>
+      <button class="btn btn-primary" onclick="loadQuestions()" id="newBtn">🔄 New Questions</button>
+      <span class="score" id="scoreDisplay" style="display:none"></span>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" class="loading">Loading questions...</div>
+
+  <!-- Quiz Area -->
+  <div id="quizArea" style="display:none">
+    <div id="questionsContainer"></div>
+
+    <div class="submit-row">
+      <button class="btn btn-submit" onclick="checkAnswers()" id="submitBtn">✓ Check Answers</button>
+      <span class="score" id="resultDisplay" style="display:none"></span>
+    </div>
+  </div>
+
+  <!-- History Panel -->
+  <div class="history-panel" id="historyPanel">
+    <div class="history-header" onclick="toggleHistory()">
+      <h3 id="historyTitle">📋 History</h3>
+      <span class="history-toggle" id="historyToggle">▼</span>
+    </div>
+    <div class="history-list" id="historyList">
+      <div class="loading">Loading history...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Language state ──
+let lang = new URLSearchParams(window.location.search).get('lang') || '{{ lang }}';
+if (lang !== 'en' && lang !== 'es') lang = 'en';
+
+const T = {
+  en: {
+    title: '🚗 BYD Tech Quiz',
+    subtitle: '5 random questions — test your BYD technical knowledge',
+    newBtn: '🔄 New Questions',
+    loading: 'Loading questions...',
+    checkBtn: '✓ Check Answers',
+    correct: '✅ Correct!',
+    incorrect: '❌ ',
+    unanswered: '⚠️ Please answer all questions and try again.',
+    historyTitle: '📋 History',
+    historyLoading: 'Loading history...',
+    historyEmpty: 'No quiz history yet.',
+    historyFailed: 'Failed to load history.',
+    scoreLabel: 'Score',
+    errorLoad: '⚠️ Failed to load. Is the server running?',
+    catLabel: 'BYD Tech',
+  },
+  es: {
+    title: '🚗 Cuestionario Técnico BYD',
+    subtitle: '5 preguntas aleatorias — pon a prueba tu conocimiento técnico BYD',
+    newBtn: '🔄 Nuevas Preguntas',
+    loading: 'Cargando preguntas...',
+    checkBtn: '✓ Verificar Respuestas',
+    correct: '✅ ¡Correcto!',
+    incorrect: '❌ ',
+    unanswered: '⚠️ Por favor responde todas las preguntas e intenta de nuevo.',
+    historyTitle: '📋 Historial',
+    historyLoading: 'Cargando historial...',
+    historyEmpty: 'Aún no hay historial de cuestionarios.',
+    historyFailed: 'Error al cargar el historial.',
+    scoreLabel: 'Puntuación',
+    errorLoad: '⚠️ Error al cargar. ¿Está el servidor funcionando?',
+    catLabel: 'Tecnología BYD',
+  }
+};
+
+function applyLang() {
+  // Update URL without reload
+  const url = new URL(window.location);
+  url.searchParams.set('lang', lang);
+  window.history.replaceState({}, '', url);
+
+  // Update static text
+  document.title = T[lang].title;
+  document.getElementById('title').textContent = T[lang].title;
+  document.getElementById('subtitle').textContent = T[lang].subtitle;
+  document.getElementById('newBtn').textContent = T[lang].newBtn;
+  document.getElementById('submitBtn').textContent = T[lang].checkBtn;
+  document.getElementById('historyTitle').textContent = T[lang].historyTitle;
+  document.getElementById('langBtn').textContent = lang === 'en' ? 'ES' : 'EN';
+
+  // Hide/show language-specific elements
+  document.querySelectorAll('.lang-en, .lang-es').forEach(el => {
+    el.style.display = el.classList.contains('lang-' + lang) ? '' : 'none';
+  });
+
+  // Re-render questions if loaded
+  if (questions.length > 0) renderQuestions();
+
+  // Re-render history if loaded
+  if (lastHistoryData) renderHistory(lastHistoryData);
+}
+
+function switchLang() {
+  lang = lang === 'en' ? 'es' : 'en';
+  applyLang();
+}
+
+// ── Quiz State ──
+let questions = [];
+let answered = false;
+let sessionId = '';
+let lastHistoryData = null;
+
+function genSessionId() {
+  return 'qz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function _(en, es) {
+  return lang === 'es' ? es : en;
+}
+
+async function loadQuestions() {
+  answered = false;
+  sessionId = genSessionId();
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').textContent = T[lang].loading;
+  document.getElementById('quizArea').style.display = 'none';
+  document.getElementById('resultDisplay').style.display = 'none';
+  document.getElementById('scoreDisplay').style.display = 'none';
+  document.getElementById('submitBtn').disabled = false;
+
+  try {
+    const resp = await fetch('/api/questions');
+    const data = await resp.json();
+    questions = data.questions;
+    renderQuestions();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('quizArea').style.display = 'block';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  } catch (err) {
+    document.getElementById('loading').textContent = T[lang].errorLoad;
+  }
+}
+
+function renderQuestions() {
+  const container = document.getElementById('questionsContainer');
+  container.innerHTML = '';
+
+  questions.forEach((q, i) => {
+    const card = document.createElement('div');
+    card.className = 'question-card';
+    card.id = 'qcard-' + i;
+
+    const questionText = lang === 'es' ? q.question_es : q.question_en;
+    const options = lang === 'es' ? q.options_es : q.options_en;
+
+    card.innerHTML = `
+      <div class="q-header">
+        <span class="q-num">#${i + 1}</span>
+        <span class="q-type-tag">${T[lang].catLabel}</span>
+      </div>
+      <div class="q-body">
+        <p class="q-text">${questionText}</p>
+        <div class="options" id="options-${i}">
+          ${options.map((opt, j) => `
+            <label class="option">
+              <input type="radio" name="q${i}" value="${j}">
+              <span class="option-letter">${String.fromCharCode(65 + j)}</span>
+              <span class="option-text">${opt}</span>
+            </label>
+          `).join('')}
+        </div>
+        <div class="explanation" id="explanation-${i}" style="display:none"></div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+async function checkAnswers() {
+  if (answered) return;
+  answered = true;
+  document.getElementById('submitBtn').disabled = true;
+
+  let correct = 0;
+  let allAnswered = true;
+  const answers = [];
+
+  questions.forEach((q, i) => {
+    const selected = document.querySelector(`input[name="q${i}"]:checked`);
+    const explanation = document.getElementById('explanation-' + i);
+    const card = document.getElementById('qcard-' + i);
+    const optionLabels = document.querySelectorAll(`#options-${i} .option`);
+
+    let chosenIndex = null;
+    let isCorrect = false;
+
+    if (!selected) {
+      allAnswered = false;
+      card.classList.add('unanswered');
+    } else {
+      chosenIndex = parseInt(selected.value);
+      isCorrect = chosenIndex === q.correct_index;
+
+      optionLabels.forEach((opt, j) => {
+        opt.classList.remove('correct', 'incorrect', 'missed');
+        if (j === q.correct_index) opt.classList.add('correct');
+        if (j === chosenIndex && !isCorrect) opt.classList.add('incorrect');
+        opt.querySelector('input').disabled = true;
+      });
+
+      if (isCorrect) {
+        correct++;
+        card.classList.add('correct-card');
+        explanation.innerHTML = T[lang].correct;
+      } else {
+        card.classList.add('incorrect-card');
+        const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
+        explanation.innerHTML = `${T[lang].incorrect}${explText}`;
+      }
+      explanation.style.display = 'block';
+    }
+
+    // Store both EN/ES for history
+    const optionsCombined = q.options_en.map((enOpt, j) => {
+      const esOpt = q.options_es[j] || '';
+      return esOpt && esOpt !== enOpt ? `${enOpt}  |  ${esOpt}` : enOpt;
+    });
+
+    answers.push({
+      category: q.category,
+      question_en: q.question_en,
+      question_es: q.question_es,
+      options: optionsCombined,
+      correct_index: q.correct_index,
+      chosen_index: chosenIndex,
+      is_correct: isCorrect,
+    });
+  });
+
+  const total = questions.length;
+  const pct = allAnswered ? Math.round(correct/total*100) : 0;
+  const scoreText = `${correct}/${total} (${pct}%)`;
+
+  document.getElementById('resultDisplay').textContent = scoreText;
+  document.getElementById('resultDisplay').style.display = 'inline';
+  document.getElementById('scoreDisplay').textContent = `${T[lang].scoreLabel}: ${scoreText}`;
+  document.getElementById('scoreDisplay').style.display = 'inline';
+
+  if (!allAnswered) {
+    const msg = document.createElement('div');
+    msg.className = 'unanswered-msg';
+    msg.textContent = T[lang].unanswered;
+    document.getElementById('questionsContainer').appendChild(msg);
+    return;
+  }
+
+  // Auto-submit to server
+  try {
+    await fetch('/api/submit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: sessionId, answers: answers}),
+    });
+  } catch (err) {
+    console.error('Submit failed:', err);
+  }
+
+  loadHistory();
+}
+
+// ── History ──
+
+let historyOpen = true;
+
+function toggleHistory() {
+  historyOpen = !historyOpen;
+  document.getElementById('historyList').style.display = historyOpen ? 'block' : 'none';
+  document.getElementById('historyToggle').textContent = historyOpen ? '▼' : '▶';
+}
+
+function renderHistory(data) {
+  const list = document.getElementById('historyList');
+  if (!data || data.length === 0) {
+    list.innerHTML = `<div class="history-empty">${T[lang].historyEmpty}</div>`;
+    return;
+  }
+  list.innerHTML = data.map(s => {
+    const pct = Math.round(s.correct / s.total * 100);
+    const badgeCls = pct >= 80 ? 'badge-good' : pct >= 50 ? 'badge-ok' : 'badge-low';
+    const time = new Date(s.time + 'Z').toLocaleString();
+    return `
+      <div class="history-item">
+        <div class="history-meta">
+          <span class="history-time">${time}</span>
+          <span class="history-badge ${badgeCls}">${s.correct}/${s.total} (${pct}%)</span>
+        </div>
+        <div class="history-questions">
+          ${s.questions.map((q, qi) => {
+            const icon = q.is_correct ? '✅' : (q.chosen_index === null ? '⬜' : '❌');
+            const qText = lang === 'es' ? q.question_es : q.question_en;
+            return `<span class="hq-dot" title="${qText.replace(/<[^>]*>/g,'').replace(/"/g,'&quot;')}">${icon} Q${qi+1}</span>`;
+          }).join(' ')}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadHistory() {
+  const list = document.getElementById('historyList');
+  list.innerHTML = `<div class="loading">${T[lang].historyLoading}</div>`;
+  try {
+    const resp = await fetch('/api/history?limit=10');
+    const data = await resp.json();
+    lastHistoryData = data.history;
+    renderHistory(data.history);
+  } catch (err) {
+    list.innerHTML = `<div class="history-empty">${T[lang].historyFailed}</div>`;
+  }
+}
+
+// ── Init ──
+applyLang();
+loadQuestions();
+loadHistory();
+</script>
+
+</body>
+</html>
