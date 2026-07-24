@@ -180,18 +180,25 @@ function renderQuestions() {
 
     const questionText = lang === 'es' ? q.question_es : q.question_en;
     const options = lang === 'es' ? q.options_es : q.options_en;
+    const isMulti = q.multi;
+    const inputType = isMulti ? 'checkbox' : 'radio';
+    const multiHint = isMulti
+      ? (lang === 'es' ? '<span class="multi-hint">(Selecciona todas las correctas)</span>'
+                        : '<span class="multi-hint">(Select all that apply)</span>')
+      : '';
 
     card.innerHTML = `
       <div class="q-header">
         <span class="q-num">#${i + 1}</span>
         <span class="q-type-tag">${T[lang].catLabel}</span>
+        ${isMulti ? '<span class="q-type-tag multi-tag">' + (lang === 'es' ? 'MULTI' : 'MULTI') + '</span>' : ''}
       </div>
       <div class="q-body">
-        <p class="q-text">${questionText}</p>
+        <p class="q-text">${questionText} ${multiHint}</p>
         <div class="options" id="options-${i}">
           ${options.map((opt, j) => `
             <label class="option">
-              <input type="radio" name="q${i}" value="${j}">
+              <input type="${inputType}" name="q${i}" value="${j}">
               <span class="option-letter">${String.fromCharCode(65 + j)}</span>
               <span class="option-text">${opt}</span>
             </label>
@@ -224,38 +231,79 @@ async function checkAnswers() {
   const answers = [];
 
   questions.forEach((q, i) => {
-    const selected = document.querySelector(`input[name="q${i}"]:checked`);
+    const isMulti = q.multi;
     const explanation = document.getElementById('explanation-' + i);
     const card = document.getElementById('qcard-' + i);
     const optionLabels = document.querySelectorAll(`#options-${i} .option`);
 
-    let chosenIndex = null;
+    let chosenIndexes = [];
     let isCorrect = false;
 
-    if (!selected) {
-      allAnswered = false;
-      card.classList.add('unanswered');
-    } else {
-      chosenIndex = parseInt(selected.value);
-      isCorrect = chosenIndex === q.correct_index;
+    if (isMulti) {
+      // Multi-select: get all checked checkboxes
+      const checked = document.querySelectorAll(`input[name="q${i}"]:checked`);
+      chosenIndexes = Array.from(checked).map(cb => parseInt(cb.value));
 
-      optionLabels.forEach((opt, j) => {
-        opt.classList.remove('correct', 'incorrect', 'missed');
-        if (j === q.correct_index) opt.classList.add('correct');
-        if (j === chosenIndex && !isCorrect) opt.classList.add('incorrect');
-        opt.querySelector('input').disabled = true;
-      });
-
-      if (isCorrect) {
-        correct++;
-        card.classList.add('correct-card');
-        explanation.innerHTML = T[lang].correct;
+      if (chosenIndexes.length === 0) {
+        allAnswered = false;
+        card.classList.add('unanswered');
       } else {
-        card.classList.add('incorrect-card');
-        const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
-        explanation.innerHTML = explText;
+        // Compare sets
+        const correctSet = q.correct_indexes.sort().join(',');
+        const chosenSet = chosenIndexes.sort().join(',');
+        isCorrect = correctSet === chosenSet;
+
+        optionLabels.forEach((opt, j) => {
+          opt.classList.remove('correct', 'incorrect', 'missed');
+          if (q.correct_indexes.includes(j)) opt.classList.add('correct');
+          if (chosenIndexes.includes(j) && !q.correct_indexes.includes(j)) opt.classList.add('incorrect');
+          if (!chosenIndexes.includes(j) && q.correct_indexes.includes(j)) opt.classList.add('missed');
+          opt.querySelector('input').disabled = true;
+        });
+
+        if (isCorrect) {
+          correct++;
+          card.classList.add('correct-card');
+          explanation.innerHTML = T[lang].correct;
+        } else {
+          card.classList.add('incorrect-card');
+          const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
+          explanation.innerHTML = explText;
+        }
+        explanation.style.display = 'block';
       }
-      explanation.style.display = 'block';
+    } else {
+      // Single-select
+      const selected = document.querySelector(`input[name="q${i}"]:checked`);
+
+      let chosenIndex = null;
+
+      if (!selected) {
+        allAnswered = false;
+        card.classList.add('unanswered');
+      } else {
+        chosenIndex = parseInt(selected.value);
+        isCorrect = chosenIndex === q.correct_index;
+
+        optionLabels.forEach((opt, j) => {
+          opt.classList.remove('correct', 'incorrect', 'missed');
+          if (j === q.correct_index) opt.classList.add('correct');
+          if (j === chosenIndex && !isCorrect) opt.classList.add('incorrect');
+          opt.querySelector('input').disabled = true;
+        });
+
+        if (isCorrect) {
+          correct++;
+          card.classList.add('correct-card');
+          explanation.innerHTML = T[lang].correct;
+        } else {
+          card.classList.add('incorrect-card');
+          const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
+          explanation.innerHTML = explText;
+        }
+        explanation.style.display = 'block';
+      }
+      chosenIndexes = [chosenIndex];
     }
 
     const optionsCombined = q.options_en.map((enOpt, j) => {
@@ -269,7 +317,7 @@ async function checkAnswers() {
       question_es: q.question_es,
       options: optionsCombined,
       correct_index: q.correct_index,
-      chosen_index: chosenIndex,
+      chosen_index: chosenIndexes[0],
       is_correct: isCorrect,
     });
   });

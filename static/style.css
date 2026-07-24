@@ -252,6 +252,15 @@ body {
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
+.q-type-tag.multi-tag {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
+.multi-hint {
+  font-size: 0.78rem;
+  color: var(--orange);
+  font-weight: 500;
+}
 
 .q-body {
   padding: 18px;

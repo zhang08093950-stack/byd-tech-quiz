@@ -31,7 +31,9 @@ ANSWER_LETTERS = ['a', 'b', 'c', 'd', 'e']
 
 
 def _build_question(row):
-    """Convert a tech__quiz_bank row dict into a quiz question."""
+    """Convert a tech__quiz_bank row dict into a quiz question.
+    Supports both single-select (answer='a') and multi-select (answer='a,b,c').
+    """
     options_en = []
     options_es = []
     for letter in ANSWER_LETTERS:
@@ -41,22 +43,40 @@ def _build_question(row):
             options_en.append(en_val)
             options_es.append(es_val)
         else:
-            break
+            # Skip empty options mid-list (cleared "All of the above" etc.)
+            # but don't stop — there may be more options after
+            pass
 
-    answer_letter = (row.get("answer") or "").strip().lower()
-    try:
-        correct_index = ANSWER_LETTERS.index(answer_letter)
-    except ValueError:
-        correct_index = 0
+    answer_raw = (row.get("answer") or "").strip().lower()
+    is_multi = ',' in answer_raw
 
-    if correct_index >= len(options_en):
-        correct_index = len(options_en) - 1
+    if is_multi:
+        # Parse comma-separated answer letters: "a,b,c" → [0, 1, 2]
+        correct_indexes = []
+        for ch in answer_raw.split(','):
+            ch = ch.strip()
+            if ch in ANSWER_LETTERS:
+                idx = ANSWER_LETTERS.index(ch)
+                if idx < len(options_en):
+                    correct_indexes.append(idx)
+        correct_index = correct_indexes[0] if correct_indexes else 0
+    else:
+        try:
+            correct_index = ANSWER_LETTERS.index(answer_raw)
+        except ValueError:
+            correct_index = 0
+        if correct_index >= len(options_en):
+            correct_index = len(options_en) - 1
+        correct_indexes = [correct_index]
 
     question_en = row.get("question", "")
     question_es = row.get("question_es", "") or question_en
 
-    explanation_en = f"The correct answer is: <strong>{options_en[correct_index]}</strong>"
-    explanation_es = f"La respuesta correcta es: <strong>{options_es[correct_index]}</strong>"
+    # Build explanation listing all correct options
+    correct_en_texts = [options_en[i] for i in correct_indexes]
+    correct_es_texts = [options_es[i] for i in correct_indexes]
+    explanation_en = "Correct: " + "; ".join(correct_en_texts)
+    explanation_es = "Correcto: " + "; ".join(correct_es_texts)
 
     return {
         "question_en": question_en,
@@ -64,6 +84,8 @@ def _build_question(row):
         "options_en": options_en,
         "options_es": options_es,
         "correct_index": correct_index,
+        "correct_indexes": correct_indexes,
+        "multi": is_multi,
         "explanation_en": explanation_en,
         "explanation_es": explanation_es,
         "category": row.get("category", "technician"),
