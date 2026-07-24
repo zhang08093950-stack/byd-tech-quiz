@@ -164,6 +164,30 @@ def inject_lang():
     return {"lang": g.lang, "langs": LANGS}
 
 
+# ── Auto-cleanup Turso history ──
+MAX_HISTORY_ROWS = 500  # keep at most this many rows in Turso history
+
+
+def _cleanup_turso_history():
+    """Delete oldest history rows if Turso exceeds MAX_HISTORY_ROWS."""
+    try:
+        rows = _turso_execute("SELECT COUNT(*) as cnt FROM tech__quiz_history")
+        count = rows[0]["cnt"]
+        if count <= MAX_HISTORY_ROWS:
+            return
+
+        # Delete oldest sessions beyond the limit
+        to_delete = count - MAX_HISTORY_ROWS
+        _turso_execute(
+            """DELETE FROM tech__quiz_history WHERE id IN (
+                   SELECT id FROM tech__quiz_history ORDER BY id ASC LIMIT ?)""",
+            [to_delete],
+        )
+        logger.info(f"Turso cleanup: deleted {to_delete} old history rows")
+    except Exception as e:
+        logger.warning(f"Turso cleanup failed (non-fatal): {e}")
+
+
 @app.after_request
 def add_cache_headers(resp):
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -233,6 +257,8 @@ def api_submit():
                 ],
             ))
         _turso_batch(batch)
+        # Auto-clean old history to keep Turso lean
+        _cleanup_turso_history()
         return jsonify({"ok": True, "saved": len(answers)})
     except Exception as e:
         logger.error(f"Submit error: {e}")
