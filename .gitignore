@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
-data/tech_quiz.db
+*.db-wal
+*.db-shm
 .env
 venv/
