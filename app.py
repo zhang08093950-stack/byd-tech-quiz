@@ -240,7 +240,9 @@ def api_history():
         conn.close()
 
 
+# Ensure tables exist — runs both at import (gunicorn) and direct (flask dev)
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     print("BYD Tech Quiz — http://localhost:8790", flush=True)
     app.run(host="0.0.0.0", port=8790, debug=True)
