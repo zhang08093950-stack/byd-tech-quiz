@@ -1,122 +1,107 @@
 #!/usr/bin/env python3
 """
 BYD Tech Quiz — EN/ES bilingual questionnaire.
-Serves 5 random multiple-choice questions from tech__quiz_bank.
+Uses Turso (hosted SQLite) — shared database for Render and local.
 Supports ?lang=en | ?lang=es parameter (default: en).
-
-Local dev: reads from external drive /Volumes/PS2000/BYD/Uruguay/uruguay.db
-Render/prod: reads from bundled data/tech_quiz.db
-Dual-write: quiz history → SQLite + Google Sheets (best-effort)
 """
 
-import sqlite3, random, os, json, logging
+import random, os, json, logging
 from datetime import datetime
+from urllib.request import Request, urlopen
 from flask import Flask, render_template, jsonify, request, g
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Google Sheets config
-QUIZ_SHEET_ID = '12tRJS2js_Cw4rtZQTGylPjTOemq7lRMsPREzAhuL_Ec'
-QUIZ_SHEET_TAB = 'Quiz History'
-_gsheet_client = None
-
-
-def _get_gsheet():
-    """Lazy-init Google Sheets client (service account)."""
-    global _gsheet_client
-    if _gsheet_client is not None:
-        return _gsheet_client
-
-    import gspread
-    from google.oauth2 import service_account
-
-    # Render: read credentials from env var (JSON or base64-encoded JSON)
-    creds_raw = os.environ.get('GOOGLE_CREDENTIALS_JSON', '').strip()
-    if creds_raw:
-        import tempfile, base64
-        # Try base64 decode first (Render), fall back to raw JSON (local)
-        try:
-            creds_json = base64.b64decode(creds_raw).decode('utf-8')
-        except Exception:
-            creds_json = creds_raw  # assume it's raw JSON
-        tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-        tmp.write(creds_json)
-        tmp.flush()
-        tmp.close()
-        try:
-            creds = service_account.Credentials.from_service_account_file(
-                tmp.name,
-                scopes=['https://www.googleapis.com/auth/spreadsheets'])
-        finally:
-            os.unlink(tmp.name)
-    else:
-        # Local: read from known path
-        key_path = os.path.expanduser('~/.claude/credentials/trusty-mantra-494923-u0-5ae64fce221b.json')
-        creds = service_account.Credentials.from_service_account_file(
-            key_path,
-            scopes=['https://www.googleapis.com/auth/spreadsheets'])
-
-    _gsheet_client = gspread.authorize(creds)
-    return _gsheet_client
-
-
-def _write_to_sheet(session_id, answers):
-    """Append quiz answers to Google Sheet (best-effort, never raises)."""
-    try:
-        gc = _get_gsheet()
-        sh = gc.open_by_key(QUIZ_SHEET_ID)
-        ws = sh.worksheet(QUIZ_SHEET_TAB)
-
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        total = len(answers)
-        correct = sum(1 for a in answers if a.get('is_correct'))
-        score_str = f"{correct}/{total}"
-
-        rows = []
-        for a in answers:
-            rows.append([
-                session_id,
-                now,
-                a.get('question_en', ''),
-                a.get('question_es', ''),
-                json.dumps(a.get('options', []), ensure_ascii=False),
-                a.get('correct_index'),
-                a.get('chosen_index'),
-                'Yes' if a.get('is_correct') else 'No',
-                score_str,
-                a.get('category', ''),
-            ])
-
-        # Append all rows at once
-        ws.append_rows(rows, value_input_option='RAW')
-        logger.info(f"Sheets: wrote {len(rows)} rows for session {session_id[:20]}")
-    except Exception as e:
-        logger.warning(f"Sheets write failed (non-fatal): {e}")
+# ── Turso config ──
+TURSO_URL = os.environ.get("TURSO_URL",
+    "https://byd-tech-quiz-xinpeng.aws-us-east-1.turso.io/v2/pipeline")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+if not TURSO_TOKEN:
+    # Fallback: read from local token file
+    token_file = os.path.expanduser("~/.turso_token")
+    if os.path.exists(token_file):
+        with open(token_file) as f:
+            TURSO_TOKEN = f.read().strip()
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-_EXT_DB = "/Volumes/PS2000/BYD/Uruguay/uruguay.db"
-_LOCAL_DB = os.path.join(_BASE, "data", "tech_quiz.db")
-
-
-def get_db_path():
-    """Use external drive if available (local dev), else bundled copy (Render)."""
-    if os.path.exists(_EXT_DB):
-        return _EXT_DB
-    return _LOCAL_DB
-
-
-app = Flask(__name__,
-    template_folder=os.path.join(_BASE, "templates"))
+app = Flask(__name__, template_folder=os.path.join(_BASE, "templates"))
 
 LANGS = {"en": "English", "es": "Español"}
 ANSWER_LETTERS = ['a', 'b', 'c', 'd', 'e']
 
 
+# ── Turso HTTP helpers ──
+
+def _turso_request(sql, params=None):
+    """Execute SQL statement(s) via Turso HTTP pipeline API. Returns parsed JSON."""
+    stmt = {"sql": sql}
+    if params:
+        stmt["args"] = []
+        for p in params:
+            if isinstance(p, str):
+                stmt["args"].append({"type": "text", "value": p})
+            elif isinstance(p, (int, float)):
+                stmt["args"].append({"type": "integer", "value": str(p)})
+            elif p is None:
+                stmt["args"].append({"type": "null"})
+            else:
+                stmt["args"].append({"type": "text", "value": str(p)})
+
+    body = json.dumps({"requests": [{"type": "execute", "stmt": stmt}]}).encode()
+    req = Request(TURSO_URL, data=body, headers={
+        "Authorization": f"Bearer {TURSO_TOKEN}",
+        "Content-Type": "application/json",
+    })
+    with urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+def _turso_execute(sql, params=None):
+    """Execute a single SQL statement, return list of dicts."""
+    result = _turso_request(sql, params)
+    response = result["results"][0]
+    if response["type"] != "ok":
+        raise RuntimeError(f"Turso error: {response}")
+    exec_result = response["response"]["result"]
+    cols = [c["name"] for c in exec_result.get("cols", [])]
+    rows = []
+    for row in exec_result.get("rows", []):
+        d = {}
+        for i, col in enumerate(cols):
+            v = row[i]
+            if v["type"] == "null":
+                d[col] = None
+            elif v["type"] == "integer":
+                d[col] = int(v.get("value", "0"))
+            else:
+                d[col] = v.get("value", "")
+        rows.append(d)
+    return rows
+
+
+def _turso_batch(statements):
+    """Execute multiple SQL statements in one pipeline request."""
+    body = {"requests": []}
+    for sql, params in statements:
+        stmt = {"sql": sql}
+        if params:
+            stmt["args"] = [{"type": "text", "value": str(p)} if isinstance(p, str)
+                           else {"type": "integer", "value": str(p)} for p in params]
+        body["requests"].append({"type": "execute", "stmt": stmt})
+
+    req = Request(TURSO_URL, data=json.dumps(body).encode(), headers={
+        "Authorization": f"Bearer {TURSO_TOKEN}",
+        "Content-Type": "application/json",
+    })
+    with urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read())
+
+
+# ── Question building ──
+
 def _build_question(row):
-    """Convert a tech__quiz_bank row dict into a quiz question.
-    Supports both single-select (answer='a') and multi-select (answer='a,b,c').
-    """
+    """Convert a tech__quiz_bank row dict into a quiz question."""
     options_en = []
     options_es = []
     for letter in ANSWER_LETTERS:
@@ -125,16 +110,11 @@ def _build_question(row):
         if en_val or es_val:
             options_en.append(en_val)
             options_es.append(es_val)
-        else:
-            # Skip empty options mid-list (cleared "All of the above" etc.)
-            # but don't stop — there may be more options after
-            pass
 
     answer_raw = (row.get("answer") or "").strip().lower()
     is_multi = ',' in answer_raw
 
     if is_multi:
-        # Parse comma-separated answer letters: "a,b,c" → [0, 1, 2]
         correct_indexes = []
         for ch in answer_raw.split(','):
             ch = ch.strip()
@@ -152,28 +132,24 @@ def _build_question(row):
             correct_index = len(options_en) - 1
         correct_indexes = [correct_index]
 
-    question_en = row.get("question", "")
-    question_es = row.get("question_es", "") or question_en
-
-    # Build explanation listing all correct options
     correct_en_texts = [options_en[i] for i in correct_indexes]
     correct_es_texts = [options_es[i] for i in correct_indexes]
-    explanation_en = "Correct: " + "; ".join(correct_en_texts)
-    explanation_es = "Correcto: " + "; ".join(correct_es_texts)
 
     return {
-        "question_en": question_en,
-        "question_es": question_es,
+        "question_en": row.get("question", ""),
+        "question_es": row.get("question_es", "") or row.get("question", ""),
         "options_en": options_en,
         "options_es": options_es,
         "correct_index": correct_index,
         "correct_indexes": correct_indexes,
         "multi": is_multi,
-        "explanation_en": explanation_en,
-        "explanation_es": explanation_es,
+        "explanation_en": "Correct: " + "; ".join(correct_en_texts),
+        "explanation_es": "Correcto: " + "; ".join(correct_es_texts),
         "category": row.get("category", "technician"),
     }
 
+
+# ── Routes ──
 
 @app.before_request
 def set_lang():
@@ -203,66 +179,26 @@ def index():
 
 @app.route("/api/health")
 def api_health():
-    """Check if Google Sheets integration is working."""
-    import sys
-    status = {"db": "ok", "sheets": "unknown"}
-    # Check if gspread is installed
     try:
-        import gspread
-        status["gspread_version"] = gspread.__version__
-    except ImportError:
-        status["gspread_version"] = "NOT INSTALLED"
-    try:
-        # Check env var
-        creds_raw = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
-        status["cred_env_set"] = bool(creds_raw)
-        status["cred_env_len"] = len(creds_raw)
-        gc = _get_gsheet()
-        sh = gc.open_by_key(QUIZ_SHEET_ID)
-        ws = sh.worksheet(QUIZ_SHEET_TAB)
-        status["sheets"] = "ok"
-        status["sheet_rows"] = ws.row_count
+        rows = _turso_execute("SELECT COUNT(*) as cnt FROM tech__quiz_bank")
+        return jsonify({"db": "turso", "questions": rows[0]["cnt"]})
     except Exception as e:
-        status["sheets"] = f"error: {e}"
-    return jsonify(status)
+        return jsonify({"db": "turso", "error": str(e)}), 500
 
 
 @app.route("/api/questions")
 def api_questions():
     """Return 5 random questions from tech__quiz_bank."""
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
+        rows = _turso_execute(
             "SELECT * FROM tech__quiz_bank ORDER BY RANDOM() LIMIT 5"
-        ).fetchall()
-        questions = [_build_question(dict(r)) for r in rows]
+        )
+        questions = [_build_question(r) for r in rows]
         random.shuffle(questions)
         return jsonify({"questions": questions})
-    finally:
-        conn.close()
-
-
-def init_db():
-    """Ensure tech quiz history table exists."""
-    conn = sqlite3.connect(get_db_path())
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS tech__quiz_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            question_type TEXT,
-            question_en TEXT,
-            question_es TEXT,
-            options TEXT,
-            correct_index INTEGER,
-            chosen_index INTEGER,
-            is_correct INTEGER,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_tech_quiz_session ON tech__quiz_history(session_id);
-    """)
-    conn.commit()
-    conn.close()
+    except Exception as e:
+        logger.error(f"Questions error: {e}")
+        return jsonify({"error": "Failed to load questions"}), 500
 
 
 @app.route("/api/submit", methods=["POST"])
@@ -275,60 +211,60 @@ def api_submit():
     if not session_id or not answers:
         return jsonify({"ok": False, "error": "Missing session_id or answers"}), 400
 
-    conn = sqlite3.connect(get_db_path())
     try:
-        conn.executemany("""
-            INSERT INTO tech__quiz_history
-                (session_id, question_type, question_en, question_es, options,
-                 correct_index, chosen_index, is_correct, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        """, [
-            (
-                session_id,
-                a.get("category", ""),
-                a.get("question_en", ""),
-                a.get("question_es", ""),
-                json.dumps(a.get("options", [])),
-                a.get("correct_index"),
-                a.get("chosen_index"),
-                1 if a.get("is_correct") else 0,
-            )
-            for a in answers
-        ])
-        conn.commit()
-        # Dual-write to Google Sheets (best-effort, non-blocking)
-        _write_to_sheet(session_id, answers)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        batch = []
+        for a in answers:
+            batch.append((
+                """INSERT INTO tech__quiz_history
+                   (session_id, question_type, question_en, question_es, options,
+                    correct_index, chosen_index, is_correct, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    session_id,
+                    a.get("category", ""),
+                    a.get("question_en", ""),
+                    a.get("question_es", ""),
+                    json.dumps(a.get("options", []), ensure_ascii=False),
+                    a.get("correct_index"),
+                    a.get("chosen_index"),
+                    1 if a.get("is_correct") else 0,
+                    now,
+                ],
+            ))
+        _turso_batch(batch)
         return jsonify({"ok": True, "saved": len(answers)})
-    finally:
-        conn.close()
+    except Exception as e:
+        logger.error(f"Submit error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/history")
 def api_history():
     """Return recent quiz sessions with stats."""
     limit = request.args.get("limit", 10, type=int)
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
     try:
-        sessions = conn.execute("""
-            SELECT session_id, COUNT(*) as total,
-                   SUM(is_correct) as correct,
-                   MAX(created_at) as time
-            FROM tech__quiz_history
-            GROUP BY session_id
-            ORDER BY MAX(created_at) DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
+        sessions = _turso_execute(
+            """SELECT session_id, COUNT(*) as total,
+                      SUM(is_correct) as correct,
+                      MAX(created_at) as time
+               FROM tech__quiz_history
+               GROUP BY session_id
+               ORDER BY MAX(created_at) DESC
+               LIMIT ?""",
+            [limit],
+        )
 
         result = []
         for s in sessions:
-            details = conn.execute("""
-                SELECT question_type, question_en, question_es, options,
-                       correct_index, chosen_index, is_correct
-                FROM tech__quiz_history
-                WHERE session_id = ?
-                ORDER BY id
-            """, (s["session_id"],)).fetchall()
+            details = _turso_execute(
+                """SELECT question_type, question_en, question_es, options,
+                          correct_index, chosen_index, is_correct
+                   FROM tech__quiz_history
+                   WHERE session_id = ?
+                   ORDER BY id""",
+                [s["session_id"]],
+            )
 
             result.append({
                 "session_id": s["session_id"],
@@ -342,17 +278,15 @@ def api_history():
                     "options": json.loads(d["options"]) if d["options"] else [],
                     "correct_index": d["correct_index"],
                     "chosen_index": d["chosen_index"],
-                    "is_correct": bool(d["is_correct"]),
+                    "is_correct": d["is_correct"] == 1,
                 } for d in details],
             })
 
         return jsonify({"history": result})
-    finally:
-        conn.close()
+    except Exception as e:
+        logger.error(f"History error: {e}")
+        return jsonify({"history": []})
 
-
-# Ensure tables exist — runs both at import (gunicorn) and direct (flask dev)
-init_db()
 
 if __name__ == "__main__":
     print("BYD Tech Quiz — http://localhost:8790", flush=True)
