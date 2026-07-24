@@ -53,16 +53,6 @@
     </div>
   </div>
 
-  <!-- ── History ── -->
-  <div class="history-panel" id="historyPanel">
-    <div class="history-header" onclick="toggleHistory()">
-      <h3 id="historyTitle">📋 History</h3>
-      <span class="history-toggle" id="historyToggle">▼</span>
-    </div>
-    <div class="history-list" id="historyList">
-      <div class="loading-state" style="padding:24px"><div class="loading-spinner"></div></div>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -81,10 +71,6 @@ const T = {
     good: 'Good job!',
     meh: 'Keep practicing!',
     unanswered: '⚠️ Please answer all questions and try again.',
-    historyTitle: '📋 History',
-    historyLoading: 'Loading history...',
-    historyEmpty: 'No quiz history yet.',
-    historyFailed: 'Failed to load history.',
     scoreLabel: 'Score',
     answered: 'Answered',
     errorLoad: '⚠️ Failed to load. Is the server running?',
@@ -100,10 +86,6 @@ const T = {
     good: '¡Buen trabajo!',
     meh: '¡Sigue practicando!',
     unanswered: '⚠️ Por favor responde todas las preguntas e intenta de nuevo.',
-    historyTitle: '📋 Historial',
-    historyLoading: 'Cargando historial...',
-    historyEmpty: 'Aún no hay historial de cuestionarios.',
-    historyFailed: 'Error al cargar el historial.',
     scoreLabel: 'Puntuación',
     answered: 'Respondidas',
     errorLoad: '⚠️ Error al cargar. ¿Está el servidor funcionando?',
@@ -121,12 +103,10 @@ function applyLang() {
   document.getElementById('subtitle').textContent = T[lang].subtitle;
   document.getElementById('loadingText').textContent = T[lang].loading;
   document.getElementById('submitBtn').textContent = T[lang].checkBtn;
-  document.getElementById('historyTitle').textContent = T[lang].historyTitle;
   document.getElementById('langBtn').textContent = lang === 'en' ? 'ES' : 'EN';
   document.getElementById('progressLabel').textContent = `${T[lang].answered} 0/5`;
 
   if (questions.length > 0) renderQuestions();
-  if (lastHistoryData) renderHistory(lastHistoryData);
 }
 
 function switchLang() {
@@ -138,7 +118,6 @@ function switchLang() {
 let questions = [];
 let answered = false;
 let sessionId = '';
-let lastHistoryData = null;
 
 function genSessionId() {
   return 'qz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
@@ -371,64 +350,11 @@ async function checkAnswers() {
     console.error('Submit failed:', err);
   }
 
-  loadHistory();
-}
-
-// ── History ──
-
-let historyOpen = true;
-
-function toggleHistory() {
-  historyOpen = !historyOpen;
-  document.getElementById('historyList').style.display = historyOpen ? 'block' : 'none';
-  document.getElementById('historyToggle').textContent = historyOpen ? '▼' : '▶';
-}
-
-function renderHistory(data) {
-  const list = document.getElementById('historyList');
-  if (!data || data.length === 0) {
-    list.innerHTML = `<div class="history-empty">${T[lang].historyEmpty}</div>`;
-    return;
-  }
-  list.innerHTML = data.map((s, si) => {
-    const pct = Math.round(s.correct / s.total * 100);
-    const badgeCls = pct >= 80 ? 'badge-good' : pct >= 50 ? 'badge-ok' : 'badge-low';
-    const time = new Date(s.time + 'Z').toLocaleString();
-    return `
-      <div class="history-item stagger-in" style="animation-delay:${si * 0.04}s">
-        <div class="history-meta">
-          <span class="history-time">${time}</span>
-          <span class="history-badge ${badgeCls}">${s.correct}/${s.total} (${pct}%)</span>
-        </div>
-        <div class="history-questions">
-          ${s.questions.map((q, qi) => {
-            const icon = q.is_correct ? '✅' : (q.chosen_index === null ? '⬜' : '❌');
-            const qText = lang === 'es' ? q.question_es : q.question_en;
-            return `<span class="hq-dot" title="${qText.replace(/<[^>]*>/g,'').replace(/"/g,'&quot;')}">${icon} Q${qi+1}</span>`;
-          }).join(' ')}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-async function loadHistory() {
-  const list = document.getElementById('historyList');
-  list.innerHTML = `<div class="loading-state" style="padding:24px"><div class="loading-spinner"></div></div>`;
-  try {
-    const resp = await fetch('/api/history?limit=10');
-    const data = await resp.json();
-    lastHistoryData = data.history;
-    renderHistory(data.history);
-  } catch (err) {
-    list.innerHTML = `<div class="history-empty">${T[lang].historyFailed}</div>`;
-  }
 }
 
 // ── Init ──
 applyLang();
 loadQuestions();
-loadHistory();
 </script>
 
 </body>
