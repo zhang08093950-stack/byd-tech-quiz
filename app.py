@@ -193,6 +193,28 @@ def index():
     return render_template("quiz.html")
 
 
+@app.route("/api/health")
+def api_health():
+    """Check if Google Sheets integration is working."""
+    import sys
+    status = {"db": "ok", "sheets": "unknown"}
+    # Check if gspread is installed
+    try:
+        import gspread
+        status["gspread_version"] = gspread.__version__
+    except ImportError:
+        status["gspread_version"] = "NOT INSTALLED"
+    try:
+        gc = _get_gsheet()
+        sh = gc.open_by_key(QUIZ_SHEET_ID)
+        ws = sh.worksheet(QUIZ_SHEET_TAB)
+        status["sheets"] = "ok"
+        status["sheet_rows"] = ws.row_count
+    except Exception as e:
+        status["sheets"] = f"error: {e}"
+    return jsonify(status)
+
+
 @app.route("/api/questions")
 def api_questions():
     """Return 5 random questions from tech__quiz_bank."""
