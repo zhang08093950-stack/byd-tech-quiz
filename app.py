@@ -31,10 +31,15 @@ def _get_gsheet():
     import gspread
     from google.oauth2 import service_account
 
-    # Render: read credentials from env var
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '').strip()
-    if creds_json:
-        import tempfile
+    # Render: read credentials from env var (JSON or base64-encoded JSON)
+    creds_raw = os.environ.get('GOOGLE_CREDENTIALS_JSON', '').strip()
+    if creds_raw:
+        import tempfile, base64
+        # Try base64 decode first (Render), fall back to raw JSON (local)
+        try:
+            creds_json = base64.b64decode(creds_raw).decode('utf-8')
+        except Exception:
+            creds_json = creds_raw  # assume it's raw JSON
         tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
         tmp.write(creds_json)
         tmp.flush()
