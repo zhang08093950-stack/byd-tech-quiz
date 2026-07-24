@@ -16,7 +16,6 @@
     <p class="subtitle" id="subtitle">5 random questions — test your BYD technical knowledge</p>
     <div class="header-row">
       <button class="btn btn-lang" onclick="switchLang()" id="langBtn">ES</button>
-      <button class="btn btn-primary" onclick="loadQuestions()" id="newBtn">🔄 New Questions</button>
       <span class="score-pill" id="scoreDisplay" style="display:none"></span>
     </div>
   </div>
@@ -72,7 +71,6 @@ const T = {
   en: {
     title: '🚗 BYD Tech Quiz',
     subtitle: '5 random questions — test your BYD technical knowledge',
-    newBtn: '🔄 New Questions',
     loading: 'Loading questions...',
     checkBtn: '✓ Check Answers',
     correct: '✅ Correct!',
@@ -92,7 +90,6 @@ const T = {
   es: {
     title: '🚗 Cuestionario Técnico BYD',
     subtitle: '5 preguntas aleatorias — pon a prueba tu conocimiento técnico BYD',
-    newBtn: '🔄 Nuevas Preguntas',
     loading: 'Cargando preguntas...',
     checkBtn: '✓ Verificar Respuestas',
     correct: '✅ ¡Correcto!',
@@ -119,7 +116,6 @@ function applyLang() {
   document.title = T[lang].title;
   document.getElementById('title').textContent = T[lang].title;
   document.getElementById('subtitle').textContent = T[lang].subtitle;
-  document.getElementById('newBtn').textContent = T[lang].newBtn;
   document.getElementById('loadingText').textContent = T[lang].loading;
   document.getElementById('submitBtn').textContent = T[lang].checkBtn;
   document.getElementById('historyTitle').textContent = T[lang].historyTitle;
