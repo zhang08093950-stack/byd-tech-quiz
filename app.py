@@ -6,7 +6,7 @@ Supports ?lang=en | ?lang=es parameter (default: en).
 """
 
 import random, os, json, logging
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from flask import Flask, render_template, jsonify, request, g
 
@@ -236,7 +236,7 @@ def api_submit():
         return jsonify({"ok": False, "error": "Missing session_id or answers"}), 400
 
     try:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         batch = []
         for a in answers:
             batch.append((
