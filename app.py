@@ -223,13 +223,13 @@ def api_questions():
     """Return 5 random questions from tech__quiz_bank."""
     try:
         # Get all rowids to sample from (avoids gap issues with deleted rows)
-        all_rows = _turso_execute("SELECT rowid FROM tech__quiz_bank")
+        all_rows = _turso_execute("SELECT id FROM tech__quiz_bank")
         if not all_rows:
             resp = app.make_response(jsonify({"questions": []}))
             resp.headers["Cache-Control"] = "no-cache"
             return resp
 
-        rowids = [r["rowid"] for r in all_rows]
+        rowids = [r["id"] for r in all_rows]
         count = len(rowids)
         sample_size = min(5, count)
         selected = random.sample(rowids, sample_size)
