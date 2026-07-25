@@ -97,8 +97,18 @@ def _turso_batch(statements):
     for sql, params in statements:
         stmt = {"sql": sql}
         if params:
-            stmt["args"] = [{"type": "text", "value": str(p)} if isinstance(p, str)
-                           else {"type": "integer", "value": str(p)} for p in params]
+            stmt["args"] = []
+            for p in params:
+                if p is None:
+                    stmt["args"].append({"type": "null"})
+                elif isinstance(p, bool):
+                    stmt["args"].append({"type": "integer", "value": "1" if p else "0"})
+                elif isinstance(p, str):
+                    stmt["args"].append({"type": "text", "value": p})
+                elif isinstance(p, (int, float)):
+                    stmt["args"].append({"type": "integer", "value": str(p)})
+                else:
+                    stmt["args"].append({"type": "text", "value": str(p)})
         body["requests"].append({"type": "execute", "stmt": stmt})
 
     session = _get_turso_session()
