@@ -3,33 +3,50 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Test your BYD technical knowledge with 5 random bilingual questions. Cuestionario tecnico BYD bilingue con 5 preguntas aleatorias.">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="BYD Tech Quiz">
+  <meta property="og:description" content="5 random questions -- test your BYD technical knowledge">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+
+  <!-- Favicon (inline SVG gear emoji) -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+
   <title>BYD Tech Quiz | {{ langs[lang] }}</title>
-  <link rel="stylesheet" href="/static/style.css?v=2">
+
+  <!-- Font preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+  <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 
 <div class="container page-in">
 
-  <!-- ── Header ── -->
+  <!-- Header -->
   <div class="page-header">
-    <h1 id="title">⚙️BYD Tech Quiz</h1>
-    <p class="subtitle" id="subtitle">5 random questions — test your BYD technical knowledge</p>
+    <h1 id="title">⚙️ BYD Tech Quiz</h1>
+    <p class="subtitle" id="subtitle">5 random questions -- test your BYD technical knowledge</p>
     <div class="header-row">
       <button class="btn btn-lang" onclick="switchLang()" id="langBtn">ES</button>
       <span class="score-pill" id="scoreDisplay" style="display:none"></span>
     </div>
   </div>
 
-  <!-- ── Score Hero ── -->
+  <!-- Score Hero -->
   <div class="score-hero" id="scoreHero">
     <div class="big-score" id="scoreHeroValue"></div>
     <div class="score-label" id="scoreHeroLabel"></div>
   </div>
 
-  <!-- ── Progress Bar ── -->
+  <!-- Progress Bar -->
   <div class="progress-bar-wrap" id="progressWrap" style="display:none">
     <div class="progress-stats">
       <span id="progressLabel">Answered 0/5</span>
@@ -38,324 +55,38 @@
     <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
   </div>
 
-  <!-- ── Loading ── -->
-  <div id="loading" class="loading-state">
+  <!-- Start Screen -->
+  <div id="startScreen" class="start-screen">
+    <div class="start-icon">⚙️</div>
+    <h2 id="startTitle">BYD Tech Quiz</h2>
+    <p class="start-subtitle" id="startSubtitle">Test your BYD technical knowledge with 5 random questions.</p>
+    <button class="btn-start" onclick="startQuiz()" id="startBtn">Start Quiz</button>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" class="loading-state" style="display:none">
     <div class="loading-spinner"></div>
     <div id="loadingText">Loading questions...</div>
   </div>
 
-  <!-- ── Quiz Area ── -->
+  <!-- Quiz Area -->
   <div id="quizArea" style="display:none">
     <div id="questionsContainer"></div>
-
     <div class="submit-row">
       <button class="btn btn-submit" onclick="checkAnswers()" id="submitBtn">✓ Check Answers</button>
     </div>
   </div>
 
+  <!-- Result Screen -->
+  <div id="resultScreen" style="display:none">
+    <div class="result-review" id="resultReview"></div>
+    <div class="submit-row">
+      <button class="btn btn-try-again" onclick="tryAgain()" id="tryAgainBtn">Try Again</button>
+    </div>
+  </div>
+
 </div>
 
-<script>
-// ── Language State ──
-let lang = new URLSearchParams(window.location.search).get('lang') || '{{ lang }}';
-if (lang !== 'en' && lang !== 'es') lang = 'en';
-
-const T = {
-  en: {
-    title: '⚙️ BYD Tech Quiz',
-    subtitle: '5 random questions — test your BYD technical knowledge',
-    loading: 'Loading questions...',
-    checkBtn: '✓ Check Answers',
-    correct: '✅ Correct!',
-    great: 'Excellent!',
-    good: 'Good job!',
-    meh: 'Keep practicing!',
-    unanswered: '⚠️ Please answer all questions and try again.',
-    scoreLabel: 'Score',
-    answered: 'Answered',
-    errorLoad: '⚠️ Failed to load. Is the server running?',
-    catLabel: 'BYD Tech',
-  },
-  es: {
-    title: '⚙️Cuestionario Técnico BYD',
-    subtitle: '5 preguntas aleatorias — pon a prueba tu conocimiento técnico BYD',
-    loading: 'Cargando preguntas...',
-    checkBtn: '✓ Verificar Respuestas',
-    correct: '✅ ¡Correcto!',
-    great: '¡Excelente!',
-    good: '¡Buen trabajo!',
-    meh: '¡Sigue practicando!',
-    unanswered: '⚠️ Por favor responde todas las preguntas e intenta de nuevo.',
-    scoreLabel: 'Puntuación',
-    answered: 'Respondidas',
-    errorLoad: '⚠️ Error al cargar. ¿Está el servidor funcionando?',
-    catLabel: 'Tecnología BYD',
-  }
-};
-
-function applyLang() {
-  const url = new URL(window.location);
-  url.searchParams.set('lang', lang);
-  window.history.replaceState({}, '', url);
-
-  document.title = T[lang].title;
-  document.getElementById('title').textContent = T[lang].title;
-  document.getElementById('subtitle').textContent = T[lang].subtitle;
-  document.getElementById('loadingText').textContent = T[lang].loading;
-  document.getElementById('submitBtn').textContent = T[lang].checkBtn;
-  document.getElementById('langBtn').textContent = lang === 'en' ? 'ES' : 'EN';
-  document.getElementById('progressLabel').textContent = `${T[lang].answered} 0/5`;
-
-  if (questions.length > 0) renderQuestions();
-}
-
-function switchLang() {
-  lang = lang === 'en' ? 'es' : 'en';
-  applyLang();
-}
-
-// ── Quiz State ──
-let questions = [];
-let answered = false;
-let sessionId = '';
-
-function genSessionId() {
-  return 'qz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
-}
-
-async function loadQuestions() {
-  answered = false;
-  sessionId = genSessionId();
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('loadingText').textContent = T[lang].loading;
-  document.getElementById('quizArea').style.display = 'none';
-  document.getElementById('progressWrap').style.display = 'none';
-  document.getElementById('scoreDisplay').style.display = 'none';
-  document.getElementById('scoreHero').classList.remove('show');
-  document.getElementById('submitBtn').disabled = false;
-
-  try {
-    const resp = await fetch('/api/questions');
-    const data = await resp.json();
-    questions = data.questions;
-    renderQuestions();
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('quizArea').style.display = 'block';
-    document.getElementById('progressWrap').style.display = 'block';
-    window.scrollTo({top: 0, behavior: 'smooth'});
-  } catch (err) {
-    document.getElementById('loadingText').textContent = T[lang].errorLoad;
-  }
-}
-
-function renderQuestions() {
-  const container = document.getElementById('questionsContainer');
-  container.innerHTML = '';
-
-  questions.forEach((q, i) => {
-    const card = document.createElement('div');
-    card.className = `question-card stagger-in stagger-${i + 1}`;
-    card.id = 'qcard-' + i;
-
-    const questionText = lang === 'es' ? q.question_es : q.question_en;
-    const options = lang === 'es' ? q.options_es : q.options_en;
-    const isMulti = q.multi;
-    const inputType = isMulti ? 'checkbox' : 'radio';
-    const multiHint = isMulti
-      ? (lang === 'es' ? '<span class="multi-hint">(Selecciona todas las correctas)</span>'
-                        : '<span class="multi-hint">(Select all that apply)</span>')
-      : '';
-
-    card.innerHTML = `
-      <div class="q-header">
-        <span class="q-num">#${i + 1}</span>
-        <span class="q-type-tag">${T[lang].catLabel}</span>
-        ${isMulti ? '<span class="q-type-tag multi-tag">' + (lang === 'es' ? 'MULTI' : 'MULTI') + '</span>' : ''}
-      </div>
-      <div class="q-body">
-        <p class="q-text">${questionText} ${multiHint}</p>
-        <div class="options" id="options-${i}">
-          ${options.map((opt, j) => `
-            <label class="option">
-              <input type="${inputType}" name="q${i}" value="${j}">
-              <span class="option-letter">${String.fromCharCode(65 + j)}</span>
-              <span class="option-text">${opt}</span>
-            </label>
-          `).join('')}
-        </div>
-        <div class="explanation" id="explanation-${i}" style="display:none"></div>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
-
-// ── Progress ──
-function updateProgress(answeredCount) {
-  const total = questions.length;
-  const pct = Math.round(answeredCount / total * 100);
-  document.getElementById('progressLabel').textContent = `${T[lang].answered} ${answeredCount}/${total}`;
-  document.getElementById('progressPct').textContent = `${pct}%`;
-  document.getElementById('progressFill').style.width = `${pct}%`;
-}
-
-// ── Check Answers ──
-async function checkAnswers() {
-  if (answered) return;
-  answered = true;
-  document.getElementById('submitBtn').disabled = true;
-
-  let correct = 0;
-  let allAnswered = true;
-  const answers = [];
-
-  questions.forEach((q, i) => {
-    const isMulti = q.multi;
-    const explanation = document.getElementById('explanation-' + i);
-    const card = document.getElementById('qcard-' + i);
-    const optionLabels = document.querySelectorAll(`#options-${i} .option`);
-
-    let chosenIndexes = [];
-    let isCorrect = false;
-
-    if (isMulti) {
-      // Multi-select: get all checked checkboxes
-      const checked = document.querySelectorAll(`input[name="q${i}"]:checked`);
-      chosenIndexes = Array.from(checked).map(cb => parseInt(cb.value));
-
-      if (chosenIndexes.length === 0) {
-        allAnswered = false;
-        card.classList.add('unanswered');
-      } else {
-        // Compare sets
-        const correctSet = q.correct_indexes.sort().join(',');
-        const chosenSet = chosenIndexes.sort().join(',');
-        isCorrect = correctSet === chosenSet;
-
-        optionLabels.forEach((opt, j) => {
-          opt.classList.remove('correct', 'incorrect', 'missed');
-          if (q.correct_indexes.includes(j)) opt.classList.add('correct');
-          if (chosenIndexes.includes(j) && !q.correct_indexes.includes(j)) opt.classList.add('incorrect');
-          if (!chosenIndexes.includes(j) && q.correct_indexes.includes(j)) opt.classList.add('missed');
-          opt.querySelector('input').disabled = true;
-        });
-
-        if (isCorrect) {
-          correct++;
-          card.classList.add('correct-card');
-          explanation.innerHTML = T[lang].correct;
-        } else {
-          card.classList.add('incorrect-card');
-          const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
-          explanation.innerHTML = explText;
-        }
-        explanation.style.display = 'block';
-      }
-    } else {
-      // Single-select
-      const selected = document.querySelector(`input[name="q${i}"]:checked`);
-
-      let chosenIndex = null;
-
-      if (!selected) {
-        allAnswered = false;
-        card.classList.add('unanswered');
-      } else {
-        chosenIndex = parseInt(selected.value);
-        isCorrect = chosenIndex === q.correct_index;
-
-        optionLabels.forEach((opt, j) => {
-          opt.classList.remove('correct', 'incorrect', 'missed');
-          if (j === q.correct_index) opt.classList.add('correct');
-          if (j === chosenIndex && !isCorrect) opt.classList.add('incorrect');
-          opt.querySelector('input').disabled = true;
-        });
-
-        if (isCorrect) {
-          correct++;
-          card.classList.add('correct-card');
-          explanation.innerHTML = T[lang].correct;
-        } else {
-          card.classList.add('incorrect-card');
-          const explText = lang === 'es' ? q.explanation_es : q.explanation_en;
-          explanation.innerHTML = explText;
-        }
-        explanation.style.display = 'block';
-      }
-      chosenIndexes = [chosenIndex];
-    }
-
-    const optionsCombined = q.options_en.map((enOpt, j) => {
-      const esOpt = q.options_es[j] || '';
-      return esOpt && esOpt !== enOpt ? `${enOpt}  |  ${esOpt}` : enOpt;
-    });
-
-    answers.push({
-      category: q.category,
-      question_en: q.question_en,
-      question_es: q.question_es,
-      options: optionsCombined,
-      correct_index: q.correct_index,
-      chosen_index: chosenIndexes[0],
-      is_correct: isCorrect,
-    });
-  });
-
-  const total = questions.length;
-  const pct = allAnswered ? Math.round(correct/total*100) : 0;
-
-  updateProgress(total);
-
-  // Score hero
-  const hero = document.getElementById('scoreHero');
-  const heroVal = document.getElementById('scoreHeroValue');
-  const heroLabel = document.getElementById('scoreHeroLabel');
-  heroVal.textContent = `${correct}/${total}`;
-  if (pct >= 80) {
-    heroVal.className = 'big-score great';
-    heroLabel.textContent = T[lang].great;
-  } else if (pct >= 50) {
-    heroVal.className = 'big-score good';
-    heroLabel.textContent = T[lang].good;
-  } else {
-    heroVal.className = 'big-score meh';
-    heroLabel.textContent = T[lang].meh;
-  }
-  hero.classList.add('show');
-
-  // Score pill in header
-  const scorePill = document.getElementById('scoreDisplay');
-  scorePill.textContent = `${T[lang].scoreLabel}: ${correct}/${total}`;
-  scorePill.style.display = 'inline-flex';
-  scorePill.classList.add('show');
-
-  document.getElementById('progressFill').classList.add('complete');
-
-  if (!allAnswered) {
-    const msg = document.createElement('div');
-    msg.className = 'unanswered-msg';
-    msg.textContent = T[lang].unanswered;
-    document.getElementById('questionsContainer').appendChild(msg);
-    return;
-  }
-
-  // Submit to server
-  try {
-    await fetch('/api/submit', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session_id: sessionId, answers: answers}),
-    });
-  } catch (err) {
-    console.error('Submit failed:', err);
-  }
-
-}
-
-// ── Init ──
-applyLang();
-loadQuestions();
-</script>
-
+<script src="/static/quiz.js?v=3"></script>
 </body>
 </html>
