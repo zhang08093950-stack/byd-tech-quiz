@@ -107,11 +107,15 @@ async function fetchQuestions() {
 
 async function submitAnswers(answers) {
   try {
-    await fetch('/api/submit', {
+    var resp = await fetch('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, answers: answers }),
     });
+    var data = await resp.json();
+    if (!data.ok) {
+      console.error('Submit rejected:', data.error);
+    }
   } catch (err) {
     console.error('Submit failed:', err);
   }
@@ -461,7 +465,7 @@ async function checkAnswers() {
 
   lastResult = { correct: correct, total: total, pct: pct, allAnswered: allAnswered, correctIndexesByQ: correctIndexesByQ, chosenByQ: chosenByQ };
 
-  submitAnswers(answers);
+  await submitAnswers(answers);
 
   renderResult();
 }
