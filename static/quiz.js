@@ -303,3 +303,188 @@ function renderResult() {
   showScreen('result');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// =========================================================================
+// App -- Flow
+// =========================================================================
+
+// Called when user clicks "Start Quiz"
+async function startQuiz() {
+  resetState();
+  showScreen('loading');
+  document.getElementById('loadingText').textContent = t('loading');
+
+  try {
+    questions = await fetchQuestions();
+    if (!questions || questions.length === 0) {
+      showError(t('errorLoad'));
+      return;
+    }
+    renderQuestions();
+  } catch (err) {
+    showError(t('errorLoad'));
+  }
+}
+
+// Show error with retry button
+function showError(msg) {
+  document.getElementById('loadingText').textContent = msg;
+  showScreen('loading');
+  var loadingEl = document.getElementById('loading');
+  var retryBtn = document.getElementById('retryBtn');
+  if (!retryBtn) {
+    var btn = document.createElement('button');
+    btn.id = 'retryBtn';
+    btn.className = 'btn-retry';
+    btn.textContent = t('retry');
+    btn.onclick = startQuiz;
+    loadingEl.appendChild(btn);
+  } else {
+    retryBtn.textContent = t('retry');
+    retryBtn.style.display = 'inline-block';
+  }
+}
+
+// Called when user clicks "Check Answers"
+async function checkAnswers() {
+  if (answered) return;
+  answered = true;
+  document.getElementById('submitBtn').disabled = true;
+
+  var correct = 0;
+  var allAnswered = true;
+  var answers = [];
+  var correctIndexesByQ = [];
+  var chosenByQ = [];
+
+  questions.forEach(function(q, i) {
+    var isMulti = q.multi;
+    var card = document.getElementById('qcard-' + i);
+    var optionLabels = document.querySelectorAll('#options-' + i + ' .option');
+    var explanation = document.getElementById('explanation-' + i);
+
+    var chosenIndexes = [];
+    var isCorrect = false;
+
+    if (isMulti) {
+      var checked = document.querySelectorAll('input[name="q' + i + '"]:checked');
+      chosenIndexes = Array.from(checked).map(function(cb) { return parseInt(cb.value); });
+
+      if (chosenIndexes.length === 0) {
+        allAnswered = false;
+        card.classList.add('unanswered');
+      } else {
+        var correctSet = q.correct_indexes.sort().join(',');
+        var chosenSet = chosenIndexes.sort().join(',');
+        isCorrect = correctSet === chosenSet;
+
+        optionLabels.forEach(function(opt, j) {
+          opt.classList.remove('correct', 'incorrect', 'missed');
+          if (q.correct_indexes.includes(j)) opt.classList.add('correct');
+          if (chosenIndexes.includes(j) && !q.correct_indexes.includes(j)) opt.classList.add('incorrect');
+          if (!chosenIndexes.includes(j) && q.correct_indexes.includes(j)) opt.classList.add('missed');
+          opt.querySelector('input').disabled = true;
+        });
+
+        if (isCorrect) {
+          correct++;
+          card.classList.add('correct-card');
+          explanation.innerHTML = t('correct');
+        } else {
+          card.classList.add('incorrect-card');
+          explanation.innerHTML = lang === 'es' ? q.explanation_es : q.explanation_en;
+        }
+        explanation.style.display = 'block';
+      }
+    } else {
+      var selected = document.querySelector('input[name="q' + i + '"]:checked');
+
+      if (!selected) {
+        allAnswered = false;
+        card.classList.add('unanswered');
+        chosenIndexes = [];
+      } else {
+        var chosenIndex = parseInt(selected.value);
+        chosenIndexes = [chosenIndex];
+        isCorrect = chosenIndex === q.correct_index;
+
+        optionLabels.forEach(function(opt, j) {
+          opt.classList.remove('correct', 'incorrect', 'missed');
+          if (j === q.correct_index) opt.classList.add('correct');
+          if (j === chosenIndex && !isCorrect) opt.classList.add('incorrect');
+          opt.querySelector('input').disabled = true;
+        });
+
+        if (isCorrect) {
+          correct++;
+          card.classList.add('correct-card');
+          explanation.innerHTML = t('correct');
+        } else {
+          card.classList.add('incorrect-card');
+          explanation.innerHTML = lang === 'es' ? q.explanation_es : q.explanation_en;
+        }
+        explanation.style.display = 'block';
+      }
+    }
+
+    correctIndexesByQ.push(q.correct_indexes);
+    chosenByQ.push(chosenIndexes);
+
+    var optionsCombined = q.options_en.map(function(enOpt, j) {
+      var esOpt = q.options_es[j] || '';
+      return esOpt && esOpt !== enOpt ? enOpt + '  |  ' + esOpt : enOpt;
+    });
+
+    answers.push({
+      category: q.category,
+      question_en: q.question_en,
+      question_es: q.question_es,
+      options: optionsCombined,
+      correct_index: q.correct_index,
+      chosen_index: chosenIndexes.length > 0 ? chosenIndexes[0] : null,
+      is_correct: isCorrect,
+    });
+  });
+
+  var total = questions.length;
+  var pct = allAnswered ? Math.round(correct / total * 100) : 0;
+
+  updateProgress();
+
+  if (!allAnswered) {
+    var msg = document.createElement('div');
+    msg.className = 'unanswered-msg';
+    msg.textContent = t('unanswered');
+    document.getElementById('questionsContainer').appendChild(msg);
+    return;
+  }
+
+  lastResult = { correct: correct, total: total, pct: pct, allAnswered: allAnswered, correctIndexesByQ: correctIndexesByQ, chosenByQ: chosenByQ };
+
+  submitAnswers(answers);
+
+  renderResult();
+}
+
+// "Try Again" returns to start screen
+function tryAgain() {
+  renderStartScreen();
+}
+
+// =========================================================================
+// Init
+// =========================================================================
+function init() {
+  applyLangUrl();
+  renderStartScreen();
+
+  // Global event delegation for real-time progress
+  document.addEventListener('change', function(e) {
+    if (e.target.matches('input[name^="q"]')) {
+      updateProgress();
+    }
+  });
+}
+
+// Boot
+document.addEventListener('DOMContentLoaded', init);
