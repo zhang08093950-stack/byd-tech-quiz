@@ -214,8 +214,21 @@ def api_health():
 def api_questions():
     """Return 5 random questions from tech__quiz_bank."""
     try:
+        # Get all rowids to sample from (avoids gap issues with deleted rows)
+        all_rows = _turso_execute("SELECT rowid FROM tech__quiz_bank")
+        if not all_rows:
+            return jsonify({"questions": []})
+
+        rowids = [r["rowid"] for r in all_rows]
+        count = len(rowids)
+        sample_size = min(5, count)
+        selected = random.sample(rowids, sample_size)
+
+        # Fetch exactly the selected rows
+        placeholders = ",".join(["?" for _ in selected])
         rows = _turso_execute(
-            "SELECT * FROM tech__quiz_bank ORDER BY RANDOM() LIMIT 5"
+            f"SELECT * FROM tech__quiz_bank WHERE rowid IN ({placeholders})",
+            selected,
         )
         questions = [_build_question(r) for r in rows]
         random.shuffle(questions)
