@@ -7,7 +7,7 @@ Supports ?lang=en | ?lang=es parameter (default: en).
 
 import random, os, json, logging
 from datetime import datetime, timezone
-from urllib.request import Request, urlopen
+import requests
 from flask import Flask, render_template, jsonify, request, g
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +32,19 @@ ANSWER_LETTERS = ['a', 'b', 'c', 'd', 'e']
 
 
 # ── Turso HTTP helpers ──
+_turso_session = None
+
+def _get_turso_session():
+    """Lazy-init a requests.Session for connection reuse."""
+    global _turso_session
+    if _turso_session is None:
+        _turso_session = requests.Session()
+        _turso_session.headers.update({
+            "Authorization": f"Bearer {TURSO_TOKEN}",
+            "Content-Type": "application/json",
+        })
+    return _turso_session
+
 
 def _turso_request(sql, params=None):
     """Execute SQL statement(s) via Turso HTTP pipeline API. Returns parsed JSON."""
@@ -48,13 +61,11 @@ def _turso_request(sql, params=None):
             else:
                 stmt["args"].append({"type": "text", "value": str(p)})
 
-    body = json.dumps({"requests": [{"type": "execute", "stmt": stmt}]}).encode()
-    req = Request(TURSO_URL, data=body, headers={
-        "Authorization": f"Bearer {TURSO_TOKEN}",
-        "Content-Type": "application/json",
-    })
-    with urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    body = {"requests": [{"type": "execute", "stmt": stmt}]}
+    session = _get_turso_session()
+    resp = session.post(TURSO_URL, json=body, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _turso_execute(sql, params=None):
@@ -90,12 +101,10 @@ def _turso_batch(statements):
                            else {"type": "integer", "value": str(p)} for p in params]
         body["requests"].append({"type": "execute", "stmt": stmt})
 
-    req = Request(TURSO_URL, data=json.dumps(body).encode(), headers={
-        "Authorization": f"Bearer {TURSO_TOKEN}",
-        "Content-Type": "application/json",
-    })
-    with urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    session = _get_turso_session()
+    resp = session.post(TURSO_URL, json=body, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ── Question building ──
@@ -188,26 +197,25 @@ def _cleanup_turso_history():
         logger.warning(f"Turso cleanup failed (non-fatal): {e}")
 
 
-@app.after_request
-def add_cache_headers(resp):
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
-    resp.headers["Expires"] = "0"
-    return resp
-
-
 @app.route("/")
 def index():
-    return render_template("quiz.html")
+    resp = app.make_response(render_template("quiz.html"))
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/api/health")
 def api_health():
     try:
         rows = _turso_execute("SELECT COUNT(*) as cnt FROM tech__quiz_bank")
-        return jsonify({"db": "turso", "questions": rows[0]["cnt"]})
+        resp = app.make_response(jsonify({"db": "turso", "questions": rows[0]["cnt"]}))
+        resp.headers["Cache-Control"] = "public, max-age=60"
+        return resp
     except Exception as e:
-        return jsonify({"db": "turso", "error": str(e)}), 500
+        resp = app.make_response(jsonify({"db": "turso", "error": str(e)}))
+        resp.status_code = 500
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 
 @app.route("/api/questions")
@@ -217,7 +225,9 @@ def api_questions():
         # Get all rowids to sample from (avoids gap issues with deleted rows)
         all_rows = _turso_execute("SELECT rowid FROM tech__quiz_bank")
         if not all_rows:
-            return jsonify({"questions": []})
+            resp = app.make_response(jsonify({"questions": []}))
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
         rowids = [r["rowid"] for r in all_rows]
         count = len(rowids)
@@ -232,10 +242,15 @@ def api_questions():
         )
         questions = [_build_question(r) for r in rows]
         random.shuffle(questions)
-        return jsonify({"questions": questions})
+        resp = app.make_response(jsonify({"questions": questions}))
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
     except Exception as e:
         logger.error(f"Questions error: {e}")
-        return jsonify({"error": "Failed to load questions"}), 500
+        resp = app.make_response(jsonify({"error": "Failed to load questions"}))
+        resp.status_code = 500
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 
 @app.route("/api/submit", methods=["POST"])
