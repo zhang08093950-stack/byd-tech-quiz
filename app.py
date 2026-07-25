@@ -237,7 +237,7 @@ def api_questions():
         # Fetch exactly the selected rows
         placeholders = ",".join(["?" for _ in selected])
         rows = _turso_execute(
-            f"SELECT * FROM tech__quiz_bank WHERE rowid IN ({placeholders})",
+            f"SELECT * FROM tech__quiz_bank WHERE id IN ({placeholders})",
             selected,
         )
         questions = [_build_question(r) for r in rows]
