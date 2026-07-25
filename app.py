@@ -283,44 +283,50 @@ def api_history():
     """Return recent quiz sessions with stats."""
     limit = request.args.get("limit", 10, type=int)
     try:
-        sessions = _turso_execute(
-            """SELECT session_id, COUNT(*) as total,
-                      SUM(is_correct) as correct,
-                      MAX(created_at) as time
-               FROM tech__quiz_history
-               GROUP BY session_id
-               ORDER BY MAX(created_at) DESC
-               LIMIT ?""",
+        # Single query: join session summary with all details
+        rows = _turso_execute(
+            """SELECT h.id, h.session_id, h.question_type, h.question_en,
+                      h.question_es, h.options, h.correct_index,
+                      h.chosen_index, h.is_correct, h.created_at
+               FROM tech__quiz_history h
+               JOIN (
+                   SELECT session_id, MAX(created_at) as max_time
+                   FROM tech__quiz_history
+                   GROUP BY session_id
+                   ORDER BY max_time DESC
+                   LIMIT ?
+               ) s ON h.session_id = s.session_id
+               ORDER BY s.max_time DESC, h.session_id, h.id""",
             [limit],
         )
 
-        result = []
-        for s in sessions:
-            details = _turso_execute(
-                """SELECT question_type, question_en, question_es, options,
-                          correct_index, chosen_index, is_correct
-                   FROM tech__quiz_history
-                   WHERE session_id = ?
-                   ORDER BY id""",
-                [s["session_id"]],
-            )
-
-            result.append({
-                "session_id": s["session_id"],
-                "total": s["total"],
-                "correct": s["correct"],
-                "time": s["time"],
-                "questions": [{
-                    "question_type": d["question_type"],
-                    "question_en": d["question_en"],
-                    "question_es": d["question_es"],
-                    "options": json.loads(d["options"]) if d["options"] else [],
-                    "correct_index": d["correct_index"],
-                    "chosen_index": d["chosen_index"],
-                    "is_correct": d["is_correct"] == 1,
-                } for d in details],
+        # Group by session_id in Python
+        sessions_map = {}
+        for row in rows:
+            sid = row["session_id"]
+            if sid not in sessions_map:
+                sessions_map[sid] = {
+                    "session_id": sid,
+                    "time": row["created_at"],
+                    "questions": [],
+                }
+            sessions_map[sid]["questions"].append({
+                "question_type": row["question_type"],
+                "question_en": row["question_en"],
+                "question_es": row["question_es"],
+                "options": json.loads(row["options"]) if row["options"] else [],
+                "correct_index": row["correct_index"],
+                "chosen_index": row["chosen_index"],
+                "is_correct": row["is_correct"] == 1,
             })
 
+        for s in sessions_map.values():
+            s["total"] = len(s["questions"])
+            s["correct"] = sum(1 for q in s["questions"] if q["is_correct"])
+
+        result = list(sessions_map.values())
+        # Re-sort by time descending
+        result.sort(key=lambda x: x["time"] or "", reverse=True)
         return jsonify({"history": result})
     except Exception as e:
         logger.error(f"History error: {e}")
